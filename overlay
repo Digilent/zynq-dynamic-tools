@@ -1,18 +1,18 @@
 #!/bin/bash
 
-STORAGE_PATH="$HOME/.overlay"
-STORAGE_LIST_PATH="$STORAGE_PATH/overlays.txt"
 CONFIGFS_PATH="/configfs"
 CONFIGFS_OVERLAYS_PATH="$CONFIGFS_PATH/device-tree/overlays"
+CONFIGFS_OVERLAY_PATH="$CONFIGFS_OVERLAYS_PATH/full"
+CONFIGFS_OVERLAY_PATH_PATH="$CONFIGFS_OVERLAY_PATH/path"
+FIRMWARE_DTBO_PATH="/lib/firmware/overlay.dtbo"
 FIRMWARE_BIN_PATH="/lib/firmware/fpga.bin"
 FPGA_FIRMWARE_PATH="/sys/class/fpga_manager/fpga0/firmware"
 
 print_usage() {
 	echo "Usage: overlay <command> [options]"
-	echo "command:"
-	echo -e "\tlist - list the applied overlays"
-	echo -e "\tadd <dtbo_path> <bin_path> - add an overlay"
-	echo -e "\tremove <overlay_name> - remove an overlay"
+       echo "command:"
+       echo -e "\tapply <dtbo_path> <bin_path> - apply an overlay, replacing the old one"
+       echo -e "\tunapply - unapply the overlay"
 }
 
 print_invalid_usage() {
@@ -30,157 +30,48 @@ init_configfs() {
 	fi
 }
 
-init_storage() {
-	if [[ ! -d "$STORAGE_PATH" ]]; then
-		mkdir "$STORAGE_PATH"
-	fi
-
-	if [[ ! -f "$STORAGE_LIST_PATH" ]]; then
-		touch "$STORAGE_LIST_PATH"
-	fi
-}
-
-is_overlay_added() {
-	OVERLAY_NAME="$1"
-	STORAGE_OVERLAY_PATH="$STORAGE_PATH/$OVERLAY_NAME"
-	if [[ -d "$STORAGE_OVERLAY_PATH" ]]; then
-		return 1
-	else
-		return 0
-	fi
-}
-
-is_overlay_applied() {
-	OVERLAY_NAME="$1"
-	CONFIGFS_OVERLAY_PATH="$CONFIGFS_OVERLAYS_PATH/$OVERLAY_NAME"
-	if [[ -d "$CONFIGFS_OVERLAY_PATH" ]]; then
-		return 1
-	else
-		return 0
-	fi
-}
-
-add_overlay() {
-	OVERLAY_NAME="$1"
-	DTBO_PATH="$2"
-	BIN_PATH="$3"
-
-	echo "Adding overlay to overlays storage directory..."
-	is_overlay_added "$OVERLAY_NAME"
-	if [[ $? -ne 0 ]]; then
-		echo "Overlay already added."
-		exit 1
-	fi
-
-	STORAGE_OVERLAY_PATH="$STORAGE_PATH/$OVERLAY_NAME"
-	STORAGE_OVERLAY_DTBO_PATH="$STORAGE_OVERLAY_PATH/overlay.dtbo"
-	STORAGE_OVERLAY_BIN_PATH="$STORAGE_OVERLAY_PATH/fpga.bin"
-
-	echo "Creating overlay storage directory..."
-	mkdir "$STORAGE_OVERLAY_PATH"
-
-	echo "Copying overlay files to storage directory..."
-	cp "$DTBO_PATH" "$STORAGE_OVERLAY_DTBO_PATH"
-	cp "$BIN_PATH" "$STORAGE_OVERLAY_BIN_PATH"
-
-	apply_bin "$OVERLAY_NAME"
-	apply_overlay "$OVERLAY_NAME"
-
-	echo "$OVERLAY_NAME" >> "$STORAGE_LIST_PATH"
-	echo "Finished."
-}
-
 apply_overlay() {
-	OVERLAY_NAME="$1"
+	DTBO_PATH="$1"
 
-	echo "Applying overlay..."
-	is_overlay_applied "$OVERLAY_NAME"
-	if [[ $?  -ne 0 ]]; then
+	if [[ -d "$CONFIGFS_OVERLAY_PATH" ]]; then
 		echo "Overlay already applied."
 		exit 1
 	fi
 
-	STORAGE_OVERLAY_PATH="$STORAGE_PATH/$OVERLAY_NAME"
-	STORAGE_OVERLAY_DTBO_PATH="$STORAGE_OVERLAY_PATH/overlay.dtbo"
-	CONFIGFS_OVERLAY_PATH="$CONFIGFS_OVERLAYS_PATH/$OVERLAY_NAME"
-	CONFIGFS_OVERLAY_DTBO_PATH="$CONFIGFS_OVERLAY_PATH/dtbo"
+	echo "Copying overlay dtbo to firmware location..."
+	cp "$DTBO_PATH" "$FIRMWARE_DTBO_PATH"
 
 	echo "Creating overlay configfs directory..."
 	mkdir "$CONFIGFS_OVERLAY_PATH"
 
-	echo "Writing overlay dtbo to overlay configfs path..."
-	cat "$STORAGE_OVERLAY_DTBO_PATH" > "$CONFIGFS_OVERLAY_DTBO_PATH"
-}
-
-apply_bin() {
-	OVERLAY_NAME="$1"
-
-	STORAGE_OVERLAY_PATH="$STORAGE_PATH/$OVERLAY_NAME"
-	STORAGE_OVERLAY_BIN_PATH="$STORAGE_OVERLAY_PATH/fpga.bin"
-
-	echo "$STORAGE_OVERLAY_BIN_PATH"
-
-	echo "Copying fpga bin to firmware location..."
-	cp "$STORAGE_OVERLAY_BIN_PATH" "$FIRMWARE_BIN_PATH"
-
-	echo "Writing fpga bin to fpga firmware path..."
-	echo -n "fpga.bin" > "$FPGA_FIRMWARE_PATH"
-}
-
-apply_last_bin() {
-	LAST_OVERLAY_NAME=$(grep "." "$STORAGE_LIST_PATH" | tail -1)
-	if [[ "$LAST_OVERLAY_NAME" = "" ]]; then
-		return 1
-	fi
-
-	apply_bin "$LAST_OVERLAY_NAME"
+	echo "Writing dtbo path to overlay configfs path..."
+	echo -n "overlay.dtbo" > "$CONFIGFS_OVERLAY_PATH_PATH"
 }
 
 unapply_overlay() {
-	OVERLAY_NAME="$1"
-
-	is_overlay_applied "$OVERLAY_NAME"
-	if [[ $? -ne 1 ]]; then
-		echo "Overlay is not applied."
-		exit 1
+	if [[ ! -d "$CONFIGFS_OVERLAY_PATH" ]]; then
+		echo "Overlay not applied."
+		return 1
 	fi
 
-	CONFIGFS_OVERLAY_PATH="$CONFIGFS_OVERLAYS_PATH/$OVERLAY_NAME"
-
+	echo "Removing overlay configfs directory..."
 	rmdir "$CONFIGFS_OVERLAY_PATH"
 }
 
-remove_overlay() {
-	OVERLAY_NAME="$1"
+apply_bin() {
+	BIN_PATH="$1"
 
-	is_overlay_added "$OVERLAY_NAME"
-	if [[ $? -ne 1 ]]; then
-		echo "Overlay is not added."
-		exit 1
-	fi
+	echo "Copying fpga bin to firmware location..."
+	cp "$BIN_PATH" "$FIRMWARE_BIN_PATH"
 
-	unapply_overlay "$OVERLAY_NAME"
-
-	STORAGE_OVERLAY_PATH="$STORAGE_PATH/$OVERLAY_NAME"
-	rm -rf "$STORAGE_OVERLAY_PATH"
-
-	sed -i "/^$OVERLAY_NAME\$/d" "$STORAGE_LIST_PATH"
-
-	apply_last_bin
-}
-
-print_overlays() {
-	cat "$STORAGE_LIST_PATH"
+	echo "Writing bin path to fpga firmware path..."
+	echo -n "fpga.bin" > "$FPGA_FIRMWARE_PATH"
 }
 
 init_configfs
-init_storage
 
 COMMAND="$1"
-if [[ "$COMMAND" = "list" ]]; then
-	echo "Applied overlays:"
-	print_overlays
-elif [[ "$COMMAND" = "add" ]]; then
+if [[ "$COMMAND" = "apply" ]]; then
 	DTBO_PATH="$2"
 	BIN_PATH="$3"
 
@@ -200,25 +91,18 @@ elif [[ "$COMMAND" = "add" ]]; then
 		exit 1
 	fi
 
-	if [[ ! -f "$DTBO_PATH" ]]; then
+	if [[ ! -f "$BIN_PATH" ]]; then
 		echo "Invalid bin file path provided."
 		echo "Make sure the path to the bin file is right."
 		exit 1
 	fi
 
-	DTBO_NAME=$(basename "$DTBO_PATH")
-	OVERLAY_NAME=$(basename "$DTBO_NAME" ".dtbo")
-
-	add_overlay "$OVERLAY_NAME" "$DTBO_PATH" "$BIN_PATH"
-elif [[ "$COMMAND" = "remove" ]]; then
-	OVERLAY_NAME="$2"
-
-	if [[ "$OVERLAY_NAME" = "" ]]; then
-		print_invalid_usage
-		exit 1
-	fi
-
-	remove_overlay "$OVERLAY_NAME"
+	unapply_overlay
+	sleep 5
+	apply_bin "$BIN_PATH"
+	apply_overlay "$DTBO_PATH"
+elif [[ "$COMMAND" = "unapply" ]]; then
+	unapply_overlay
 else
 	print_invalid_usage
 	exit
