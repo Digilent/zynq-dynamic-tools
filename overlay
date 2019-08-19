@@ -10,11 +10,11 @@ FPGA_FIRMWARE_PATH="/sys/class/fpga_manager/fpga0/firmware"
 
 print_usage() {
 	echo "Usage: overlay <command> [options]"
-       echo "command:"
-       echo -e "\tapply-program <dtbo_path> <bin_path> - apply an overlay and program the fpga"
-       echo -e "\tapply <dtbo_path> - apply an overlay"
-       echo -e "\tprogram <bin_path> - program the fpga"
-       echo -e "\tunapply - unapply the overlay"
+	echo "command:"
+	echo -e "\tapply-program <dtbo_path> <bin_path> - apply an overlay and program the fpga"
+	echo -e "\tapply <dtbo_path> - apply an overlay"
+	echo -e "\tprogram <bin_path> - program the fpga"
+	echo -e "\tunapply - unapply the overlay"
 }
 
 print_invalid_usage() {
