@@ -97,8 +97,10 @@ if [[ "$COMMAND" = "apply" ]]; then
 		exit 1
 	fi
 
-	unapply_overlay
-	sleep 5
+	if unapply_overlay; then
+		sleep 2
+	fi
+
 	apply_bin "$BIN_PATH"
 	apply_overlay "$DTBO_PATH"
 elif [[ "$COMMAND" = "unapply" ]]; then
