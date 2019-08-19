@@ -6,7 +6,10 @@ BUILD_VERSION=$(date +"%y%m%d%H%M")
 
 print_invalid_usage() {
 	echo "Invalid usage."
-	echo "Usage: generate <hdf_file_path> <output_directory_path>"
+	echo "Usage: generate <command> <input_file_path> <output_directory_path>"
+	echo "command:"
+	echo -e "\tall <hdf_file_path> <output_directory_path>"
+	echo -e "\tbin <bit_file_path> <zynq_arch> <output_directory_path>"
 }
 
 UNZIP_PATH=$(command -v unzip)
@@ -45,117 +48,194 @@ if [[ $? -ne 0 ]]; then
 	exit
 fi
 
-HDF_PATH="$1"
-OUTPUT_PATH="$2"
+generate_all() {
+	HDF_PATH="$1"
+	OUTPUT_PATH="$2"
 
-if [[ "$HDF_PATH" = "" ]]; then
+	HDF_NAME=$(basename "$HDF_PATH")
+	TMP_HDF_PATH="$TMP_PATH/$HDF_NAME"
+	cp "$HDF_PATH" "$TMP_HDF_PATH"
+
+	echo "Unzipping hdf file..."
+	unzip -o "$TMP_HDF_PATH" -d "$TMP_PATH"
+	if [[ $? -ne 0 ]]; then
+		echo "Unzipping hdf file failed."
+		exit
+	fi
+
+	echo
+	echo "Figuring out processor architecture..."
+	TMP_SYSDEF_PATH="$TMP_PATH/sysdef.xml"
+
+	IS_ZYNQ=$(grep "zynq" "$TMP_SYSDEF_PATH")
+	if [[ $? -eq 0 ]]; then
+		ARCH="zynq"
+	fi
+
+	if [[ "$ARCH" = "" ]]; then
+		echo "Unsupported processor architecture $ARCH."
+		exit 1
+	fi
+
+	if [[ "$ARCH" = "zynq" ]]; then
+		PROC="ps7_cortexa9_0"
+	fi
+
+	echo "Processor architecture is $ARCH."
+
+	echo
+	echo "Converting hdf file to device tree source files..."
+	SCRIPT_DT_OVERLAY_PATH="$SCRIPT_PATH"/lib/dt_overlay.tcl
+	SCRIPT_DTX_PATH="$SCRIPT_PATH"/device-tree-xlnx
+	xsct "$SCRIPT_DT_OVERLAY_PATH" "$TMP_HDF_PATH" "$PROC" "$SCRIPT_DTX_PATH" "$TMP_PATH"
+	if [[ $? -ne 0 ]]; then
+		echo "Device tree source files generation failed."
+		exit 1
+	fi
+
+	echo
+	echo "Replacing target firmware name..."
+	TMP_DTSI_PATH="$TMP_PATH/pl.dtsi"
+	TMP_DTBO_PATH="$TMP_PATH/pl.dtbo"
+	BIN_NAME="fpga-$BUILD_VERSION.bin"
+	sed -ri "s|firmware-name = \".+\";||g" "$TMP_DTSI_PATH"
+	if [[ $? -ne 0 ]]; then
+		echo "Replacing target firmware name failed."
+		exit 1
+	fi
+
+	echo
+	echo "Compiling device tree source files..."
+	dtc -O dtb -o "$TMP_DTBO_PATH" -b 0 -@ "$TMP_DTSI_PATH"
+	if [[ $? -ne 0 ]]; then
+		echo "Device tree source files compilation failed."
+		exit 1
+	fi
+
+	echo
+	echo "Generating bin file..."
+
+	TMP_BIT_PATH=$(find "$TMP_PATH" -name "*.bit")
+	BIF_TEMPLATE_PATH="$SCRIPT_PATH/lib/template.bif"
+	TMP_BIF_PATH="$TMP_PATH/bitstream.bif"
+	sed -r "s|template.bit|$TMP_BIT_PATH|" "$BIF_TEMPLATE_PATH" > "$TMP_BIF_PATH"
+
+	TMP_BIN_PATH="$TMP_BIT_PATH.bin"
+	bootgen -image "$TMP_BIF_PATH" -arch "$ARCH" -process_bitstream bin
+	if [[ $? -ne 0 ]]; then
+		echo "Bin file generation failed."
+		exit 1
+	fi
+
+	echo
+	echo "Copying output files..."
+	DTSI_PATH=$(realpath "$OUTPUT_PATH/overlay-$BUILD_VERSION.dtsi")
+	DTBO_PATH=$(realpath "$OUTPUT_PATH/overlay-$BUILD_VERSION.dtbo")
+	BIN_PATH=$(realpath "$OUTPUT_PATH/fpga-$BUILD_VERSION.bin")
+	cp "$TMP_DTSI_PATH" "$DTSI_PATH"
+	cp "$TMP_DTBO_PATH" "$DTBO_PATH"
+	cp "$TMP_BIN_PATH" "$BIN_PATH"
+	echo "dtsi: $DTSI_PATH"
+	echo "dtbo: $DTBO_PATH"
+	echo "bin: $BIN_PATH"
+}
+
+generate_bin() {
+	BIT_PATH="$1"
+	ARCH="$2"
+	OUTPUT_PATH="$3"
+
+	BIT_NAME=$(basename "$BIT_PATH")
+	TMP_BIT_PATH="$TMP_PATH/$BIT_NAME"
+	cp "$BIT_PATH" "$TMP_BIT_PATH"
+
+	BIF_TEMPLATE_PATH="$SCRIPT_PATH/lib/template.bif"
+	TMP_BIF_PATH="$TMP_PATH/bitstream.bif"
+	sed -r "s|template.bit|$TMP_BIT_PATH|" "$BIF_TEMPLATE_PATH" > "$TMP_BIF_PATH"
+
+	TMP_BIN_PATH="$TMP_BIT_PATH.bin"
+	bootgen -image "$TMP_BIF_PATH" -arch "$ARCH" -process_bitstream bin
+	if [[ $? -ne 0 ]]; then
+		echo "Bin file generation failed."
+		exit 1
+	fi
+
+	echo
+	echo "Generating bin file..."
+	BIN_PATH=$(realpath "$OUTPUT_PATH/fpga-$BUILD_VERSION.bin")
+	cp "$TMP_BIN_PATH" "$BIN_PATH"
+	echo "bin: $BIN_PATH"
+}
+
+COMMAND="$1"
+if [[ "$COMMAND" = "all" ]]; then
+	HDF_PATH="$2"
+	OUTPUT_PATH="$3"
+
+	if [[ "$HDF_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ "$OUTPUT_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ ! -f "$HDF_PATH" ]]; then
+		echo "Invalid hdf file path provided."
+		echo "Make sure the path to the hdf file is right."
+		exit 1
+	fi
+
+	if [[ ! -d "$OUTPUT_PATH" ]]; then
+		echo "Invalid output directory provided."
+		echo "Make sure the path to the output directory is right."
+		exit 1
+	fi
+
+	generate_all "$HDF_PATH" "$OUTPUT_PATH"
+elif [[ "$COMMAND" = "bin" ]]; then
+	BIT_PATH="$2"
+	ARCH="$3"
+	OUTPUT_PATH="$4"
+
+	if [[ "$BIT_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ "$OUTPUT_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ ! -f "$BIT_PATH" ]]; then
+		echo "Invalid bit file path provided."
+		echo "Make sure the path to the bit file is right."
+		exit 1
+	fi
+
+	if [[ ! -d "$OUTPUT_PATH" ]]; then
+		echo "Invalid output directory provided."
+		echo "Make sure the path to the output directory is right."
+		exit 1
+	fi
+
+	case "$ARCH" in
+	"zynq")
+		;;
+	*)
+		echo "Invalid arch provided."
+		exit 1
+		;;
+	esac
+
+	generate_bin "$BIT_PATH" "$ARCH" "$OUTPUT_PATH"
+else
 	print_invalid_usage
-	exit 1
-fi
-
-if [[ "$OUTPUT_PATH" = "" ]]; then
-	print_invalid_usage
-	exit 1
-fi
-
-if [[ ! -f "$HDF_PATH" ]]; then
-	echo "Invalid hdf file path provided."
-	echo "Make sure the path to the hdf file is right."
-	exit 1
-fi
-
-if [[ ! -d "$OUTPUT_PATH" ]]; then
-	echo "Invalid output directory provided."
-	echo "Make sure the path to the output directory is right."
-	exit 1
-fi
-
-HDF_NAME=$(basename "$HDF_PATH")
-TMP_HDF_PATH="$TMP_PATH/$HDF_NAME"
-cp "$HDF_PATH" "$TMP_HDF_PATH"
-
-echo "Unzipping hdf file..."
-unzip -o "$TMP_HDF_PATH" -d "$TMP_PATH"
-if [[ $? -ne 0 ]]; then
-	echo "Unzipping hdf file failed."
 	exit
 fi
-
-echo
-echo "Figuring out processor architecture..."
-TMP_SYSDEF_PATH="$TMP_PATH/sysdef.xml"
-
-IS_ZYNQ=$(grep "zynq" "$TMP_SYSDEF_PATH")
-if [[ $? -eq 0 ]]; then
-	ARCH="zynq"
-fi
-
-if [[ "$ARCH" = "" ]]; then
-	echo "Unsupported processor architecture $ARCH."
-	exit 1
-fi
-
-if [[ "$ARCH" = "zynq" ]]; then
-	PROC="ps7_cortexa9_0"
-fi
-
-echo "Processor architecture is $ARCH."
-
-echo
-echo "Converting hdf file to device tree source files..."
-SCRIPT_DT_OVERLAY_PATH="$SCRIPT_PATH"/lib/dt_overlay.tcl
-SCRIPT_DTX_PATH="$SCRIPT_PATH"/device-tree-xlnx
-xsct "$SCRIPT_DT_OVERLAY_PATH" "$TMP_HDF_PATH" "$PROC" "$SCRIPT_DTX_PATH" "$TMP_PATH"
-if [[ $? -ne 0 ]]; then
-	echo "Device tree source files generation failed."
-	exit 1
-fi
-
-echo
-echo "Replacing target firmware name..."
-TMP_DTSI_PATH="$TMP_PATH/pl.dtsi"
-TMP_DTBO_PATH="$TMP_PATH/pl.dtbo"
-BIN_NAME="fpga-$BUILD_VERSION.bin"
-sed -ri "s|firmware-name = \".+\";||g" "$TMP_DTSI_PATH"
-if [[ $? -ne 0 ]]; then
-	echo "Replacing target firmware name failed."
-	exit 1
-fi
-
-echo
-echo "Compiling device tree source files..."
-dtc -O dtb -o "$TMP_DTBO_PATH" -b 0 -@ "$TMP_DTSI_PATH"
-if [[ $? -ne 0 ]]; then
-	echo "Device tree source files compilation failed."
-	exit 1
-fi
-
-echo
-echo "Generating bin file..."
-
-TMP_BIT_PATH=$(find "$TMP_PATH" -name "*.bit")
-BIF_TEMPLATE_PATH="$SCRIPT_PATH/lib/template.bif"
-TMP_BIF_PATH="$TMP_PATH/bitstream.bif"
-sed -r "s|template.bit|$TMP_BIT_PATH|" "$BIF_TEMPLATE_PATH" > "$TMP_BIF_PATH"
-
-TMP_BIN_PATH="$TMP_BIT_PATH.bin"
-bootgen -image "$TMP_BIF_PATH" -arch "$ARCH" -process_bitstream bin
-if [[ $? -ne 0 ]]; then
-	echo "Bin file generation failed."
-	exit 1
-fi
-
-echo
-echo "Copying output files..."
-DTSI_PATH=$(realpath "$OUTPUT_PATH/overlay-$BUILD_VERSION.dtsi")
-DTBO_PATH=$(realpath "$OUTPUT_PATH/overlay-$BUILD_VERSION.dtbo")
-BIN_PATH=$(realpath "$OUTPUT_PATH/fpga-$BUILD_VERSION.bin")
-cp "$TMP_DTSI_PATH" "$DTSI_PATH"
-cp "$TMP_DTBO_PATH" "$DTBO_PATH"
-cp "$TMP_BIN_PATH" "$BIN_PATH"
-echo "dtsi: $DTSI_PATH"
-echo "dtbo: $DTBO_PATH"
-echo "bin: $BIN_PATH"
 
 echo
 echo "Cleaning up..."
