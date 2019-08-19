@@ -51,6 +51,14 @@ if [[ $? -ne 0 ]]; then
 	exit
 fi
 
+BOOTGEN_PATH=$(command -v bootgen)
+if [[ $? -ne 0 ]]; then
+	echo "The bootgen command, which is part of the Vivado program suite is needed to run this script."
+	echo "Make sure the settings.sh file the target Vivado version has been sourced."
+	echo "Example: source ~/Xilinx/Vivado/2019.1/settings.sh"
+	exit
+fi
+
 DTC_PATH=$(command -v dtc)
 if [[ $? -ne 0 ]]; then
 	echo "The dtc command is needed to run this script."
