@@ -9,31 +9,6 @@ print_invalid_usage() {
 	echo "Usage: generate <hdf_file_path> <output_directory_path>"
 }
 
-HDF_PATH="$1"
-OUTPUT_PATH="$2"
-
-if [[ "$HDF_PATH" = "" ]]; then
-	print_invalid_usage
-	exit 1
-fi
-
-if [[ "$OUTPUT_PATH" = "" ]]; then
-	print_invalid_usage
-	exit 1
-fi
-
-if [[ ! -f "$HDF_PATH" ]]; then
-	echo "Invalid hdf file path provided."
-	echo "Make sure the path to the hdf file is right."
-	exit 1
-fi
-
-if [[ ! -d "$OUTPUT_PATH" ]]; then
-	echo "Invalid output directory provided."
-	echo "Make sure the path to the output directory is right."
-	exit 1
-fi
-
 UNZIP_PATH=$(command -v unzip)
 if [[ $? -ne 0 ]]; then
 	echo "The unzip command is needed to run this script."
@@ -68,6 +43,31 @@ if [[ $? -ne 0 ]]; then
 	echo "cd dtc"
 	echo "make install"
 	exit
+fi
+
+HDF_PATH="$1"
+OUTPUT_PATH="$2"
+
+if [[ "$HDF_PATH" = "" ]]; then
+	print_invalid_usage
+	exit 1
+fi
+
+if [[ "$OUTPUT_PATH" = "" ]]; then
+	print_invalid_usage
+	exit 1
+fi
+
+if [[ ! -f "$HDF_PATH" ]]; then
+	echo "Invalid hdf file path provided."
+	echo "Make sure the path to the hdf file is right."
+	exit 1
+fi
+
+if [[ ! -d "$OUTPUT_PATH" ]]; then
+	echo "Invalid output directory provided."
+	echo "Make sure the path to the output directory is right."
+	exit 1
 fi
 
 HDF_NAME=$(basename "$HDF_PATH")
