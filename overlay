@@ -11,7 +11,9 @@ FPGA_FIRMWARE_PATH="/sys/class/fpga_manager/fpga0/firmware"
 print_usage() {
 	echo "Usage: overlay <command> [options]"
        echo "command:"
-       echo -e "\tapply <dtbo_path> <bin_path> - apply an overlay, replacing the old one"
+       echo -e "\tapply-program <dtbo_path> <bin_path> - apply an overlay and program the fpga"
+       echo -e "\tapply <dtbo_path> - apply an overlay"
+       echo -e "\tprogram <bin_path> - program the fpga"
        echo -e "\tunapply - unapply the overlay"
 }
 
@@ -71,7 +73,7 @@ apply_bin() {
 init_configfs
 
 COMMAND="$1"
-if [[ "$COMMAND" = "apply" ]]; then
+if [[ "$COMMAND" = "apply-program" ]]; then
 	DTBO_PATH="$2"
 	BIN_PATH="$3"
 
@@ -103,6 +105,40 @@ if [[ "$COMMAND" = "apply" ]]; then
 
 	apply_bin "$BIN_PATH"
 	apply_overlay "$DTBO_PATH"
+elif [[ "$COMMAND" = "apply" ]]; then
+	DTBO_PATH="$2"
+
+	if [[ "$DTBO_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ ! -f "$DTBO_PATH" ]]; then
+		echo "Invalid dtbo file path provided."
+		echo "Make sure the path to the dtbo file is right."
+		exit 1
+	fi
+
+	if unapply_overlay; then
+		sleep 2
+	fi
+
+	apply_overlay "$DTBO_PATH"
+elif [[ "$COMMAND" = "program" ]]; then
+	BIN_PATH="$2"
+
+	if [[ "$BIN_PATH" = "" ]]; then
+		print_invalid_usage
+		exit 1
+	fi
+
+	if [[ ! -f "$BIN_PATH" ]]; then
+		echo "Invalid bin file path provided."
+		echo "Make sure the path to the bin file is right."
+		exit 1
+	fi
+
+	apply_bin "$BIN_PATH"
 elif [[ "$COMMAND" = "unapply" ]]; then
 	unapply_overlay
 else
