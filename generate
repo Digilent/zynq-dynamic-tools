@@ -94,15 +94,15 @@ if [[ "$ARCH" = "" ]]; then
 	echo "Unsupported processor architecture $ARCH."
 	exit 1
 fi
-echo "Processor architecture is $ARCH."
-
-echo
-echo "Converting hdf file to device tree source files..."
 
 if [[ "$ARCH" = "zynq" ]]; then
 	PROC="ps7_cortexa9_0"
 fi
 
+echo "Processor architecture is $ARCH."
+
+echo
+echo "Converting hdf file to device tree source files..."
 SCRIPT_DT_OVERLAY_PATH="$SCRIPT_PATH"/lib/dt_overlay.tcl
 SCRIPT_DTX_PATH="$SCRIPT_PATH"/device-tree-xlnx
 xsct "$SCRIPT_DT_OVERLAY_PATH" "$TMP_HDF_PATH" "$PROC" "$SCRIPT_DTX_PATH" "$TMP_PATH"
